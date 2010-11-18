@@ -506,7 +506,7 @@ class PHPUnit_Framework_MockObject_Generator
             }
         }
 
-        if ($prologue == '') {
+        if ($prologue == '' && $originalClassName == '') {
             $isMockedModel = TRUE;
 
             $mockedFacadeMethods = '';
