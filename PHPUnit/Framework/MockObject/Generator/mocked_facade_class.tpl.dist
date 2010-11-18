@@ -1,0 +1,12 @@
+{class_declaration}
+{
+    public static $mockInstance = null;
+    
+    public function __construct() {
+        if (self::$mockInstance == null) {
+            self::$mockInstance = new {mocked_class}();
+        } 
+    }
+
+{facade_methods}
+}

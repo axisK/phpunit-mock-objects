@@ -189,6 +189,10 @@ class PHPUnit_Framework_MockObject_Generator
             );
         }
 
+        if (array_key_exists('isMockedModel', $mock) && $mock['isMockedModel']) {
+            eval($mockClassName . '::$mockInstance = $mockObject;');
+        }
+
         return $mockObject;
     }
 
@@ -380,6 +384,9 @@ class PHPUnit_Framework_MockObject_Generator
         $cloneTemplate = '';
         $isClass       = FALSE;
         $isInterface   = FALSE;
+        $prologue = '';
+        $postlog = '';
+        $isMockedModel = FALSE;
 
         $mockClassName = self::generateMockClassName(
           $originalClassName, $mockClassName
@@ -395,11 +402,18 @@ class PHPUnit_Framework_MockObject_Generator
 
         if (!class_exists($mockClassName['fullClassName'], $callAutoload) &&
             !interface_exists($mockClassName['fullClassName'], $callAutoload)) {
-            $prologue = 'class ' . $mockClassName['className'] . "\n{\n}\n\n";
 
-            if (!empty($mockClassName['namespaceName'])) {
-                $prologue = 'namespace ' . $mockClassName['namespaceName'] .
-                            ";\n\n" . $prologue;
+            $prologue = '';
+            //This allows us to cater for sending in an empty class name to mock a class directly
+            if ($mockClassName['className'] != NULL && $mockClassName['className'] != '' ) {
+                $prologue = 'class ' . $mockClassName['className'] . "\n{\n}\n\n";
+                //Only do the namespace if there's actually a class to use.
+                if (!empty($mockClassName['namespaceName'])) {
+                    $prologue = 'namespace ' . $mockClassName['namespaceName'] .
+                                ";\n\n" . $prologue;
+                }
+            } else {
+                $mockClassName['mockClassName'] = '_' . $mockClassName['mockClassName'];
             }
 
             $cloneTemplate = new Text_Template(
@@ -481,16 +495,58 @@ class PHPUnit_Framework_MockObject_Generator
                 }
             }
         } else {
-            foreach ($methods as $methodName) {
+            foreach ($methods as $methodName => $methodParameters) {
+                if( is_int( $methodName ) ) {
+                    $methodName = $methodParameters;
+                }
+
                 $mockedMethods .= self::generateMockedMethodDefinition(
-                  $templateDir, $mockClassName['fullClassName'], $methodName
+                  $templateDir, $mockClassName['fullClassName'], $methodName, 'public', $methodParameters
                 );
             }
+        }
+
+        if ($prologue == '') {
+            $isMockedModel = TRUE;
+
+            $mockedFacadeMethods = '';
+            foreach ($methods as $methodName => $methodParameters) {
+                if( is_int( $methodName ) ) {
+                    $methodName = $methodParameters;
+                    $methodParameters = '';
+                }
+
+                $facadeMethodTemplate = new Text_Template( $templateDir . 'mocked_facade_object_method.tpl' );
+                $facadeMethodTemplate->setVar(
+                    array(
+                        'modifier' => 'public',
+                        'reference' => '',
+                        'method_name' => $methodName,
+                        'arguments' => $methodParameters
+                    )
+                );
+
+                $mockedFacadeMethods .= $facadeMethodTemplate->render( );
+            }
+
+            $facadeClassTemplate = new Text_Template(
+                $templateDir . 'mocked_facade_class.tpl'
+            );
+            $facadeClassTemplate->setVar(
+                array(
+                    'class_declaration' => 'class ' . substr($mockClassName['mockClassName'],1) . ' extends ' . $mockClassName['mockClassName'] ,
+                    'mocked_class'      => $mockClassName['mockClassName'],
+                    'facade_methods'    => $mockedFacadeMethods
+                )
+            );
+
+            $postlog = $facadeClassTemplate->render();
         }
 
         $classTemplate->setVar(
           array(
             'prologue'          => isset($prologue) ? $prologue : '',
+            'postlog'           => isset($postlog) ? $postlog : '',
             'class_declaration' => self::generateMockClassDeclaration(
                                      $mockClassName, $isInterface
                                    ),
@@ -502,7 +558,8 @@ class PHPUnit_Framework_MockObject_Generator
 
         return array(
           'code'          => $classTemplate->render(),
-          'mockClassName' => $mockClassName['mockClassName']
+          'mockClassName' => $mockClassName['mockClassName'],
+          'isMockedModel' => $isMockedModel
         );
     }
 
@@ -557,12 +614,19 @@ class PHPUnit_Framework_MockObject_Generator
               $mockClassName['className']
             );
         } else {
-            $buffer .= sprintf(
-              "%s extends %s%s implements PHPUnit_Framework_MockObject_MockObject",
-              $mockClassName['mockClassName'],
-              !empty($mockClassName['namespaceName']) ? $mockClassName['namespaceName'] . '\\' : '',
-              $mockClassName['className']
-            );
+            if ($mockClassName['className'] != NULL && $mockClassName['className'] != '') {
+                $buffer .= sprintf(
+                  "%s extends %s%s implements PHPUnit_Framework_MockObject_MockObject",
+                  $mockClassName['mockClassName'],
+                  !empty($mockClassName['namespaceName']) ? $mockClassName['namespaceName'] . '\\' : '',
+                  $mockClassName['className']
+                );
+            } else {
+                $buffer .= sprintf(
+                  "%s implements PHPUnit_Framework_MockObject_MockObject",
+                  $mockClassName['mockClassName']
+                );
+            }
         }
 
         return $buffer;
